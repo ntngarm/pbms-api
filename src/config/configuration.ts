@@ -32,9 +32,11 @@ export default () => {
       charset: process.env.DB_CHARSET ?? defaultDbCharset[dbType],
     },
 
+    schedule: parseInt(process.env.SET_SCHEDULE ?? '60', 10),
+
     jwt: {
       secret: process.env.JWT_SECRET ?? 'secret',
       expiresIn: process.env.JWT_EXPIRES_IN ?? '7d',
-    },  
+    },
   };
 };

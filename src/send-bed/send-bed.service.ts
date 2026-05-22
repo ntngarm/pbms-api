@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
-import { Cron } from '@nestjs/schedule';
+import { SchedulerRegistry } from '@nestjs/schedule';
+import { CronJob } from 'cron';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 import { DatabaseService } from 'src/database/database.service';
@@ -20,10 +21,18 @@ export class SendBedService implements OnApplicationBootstrap {
 
   constructor(
     private readonly config: ConfigService,
+    private readonly schedulerRegistry: SchedulerRegistry,
     private db: DatabaseService,
   ) {}
 
   onApplicationBootstrap() {
+    const minutes = this.config.get<number>('schedule', 60);
+    const cronExpression = `0 */${minutes} * * * *`;
+    console.log(`Registering cron job with expression: ${cronExpression}`);
+    const job = new CronJob(cronExpression, () => void this.handleCronSendBed());
+    this.schedulerRegistry.addCronJob('send-bed', job);
+    job.start();
+    this.logger.log(`Cron registered: every ${minutes} minutes`);
     void this.handleCronSendBed();
   }
 
@@ -146,8 +155,6 @@ export class SendBedService implements OnApplicationBootstrap {
     return { success: true, count: beds.length };
   }
 
-  // ทำงานทุก ทุก 8.00 และ 16.00
-  @Cron('0 0 8,16,23 * * *')
   async handleCronSendBed() {
     this.logger.log('Cron: sending bed data...');
     try {
