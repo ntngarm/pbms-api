@@ -62,8 +62,8 @@ export class SendBedService implements OnApplicationBootstrap {
           const query: any = await this.db.query(sql);
           return query;
         } else if (resBed.filterMode == 'ALL') {
-          const placeWard = resBed.excludedWardCodes
-            .map((id) => `'${id}'`)
+          const placeWard = (resBed.excludedWardCodes ?? [])
+            .map((id: string) => `'${id}'`)
             .join(', ');
           const sql = `
           SELECT
@@ -120,8 +120,7 @@ export class SendBedService implements OnApplicationBootstrap {
       this.logger.warn('BED_API_URL is not configured');
       return { success: false, count: 0 };
     }
-
-    const rawBeds = await this.getBeds();
+    const rawBeds = await this.getBeds();    
     const bedsArray = Array.isArray(rawBeds) ? rawBeds : (rawBeds?.beds ?? []);
 
     const beds = bedsArray.map((row: { bedno: string; statusBed: number }) => ({
@@ -129,18 +128,22 @@ export class SendBedService implements OnApplicationBootstrap {
       statusAvailable: row.statusBed,
     }));
 
+    const BATCH_SIZE = 100;
+    const headers = {
+      'x-client-id': clientId,
+      'x-secret-key': secretKey,
+      'Content-Type': 'application/json',
+    };
+
     try {
-      await axios.post(
-        `${apiUrl}/psych-bed/report`,
-        { beds },
-        {
-          headers: {
-            'x-client-id': clientId,
-            'x-secret-key': secretKey,
-            'Content-Type': 'application/json',
-          },
-        },
-      );
+      for (let i = 0; i < beds.length; i += BATCH_SIZE) {
+        const chunk = beds.slice(i, i + BATCH_SIZE);
+        await axios.post(
+          `${apiUrl}/psych-bed/report`,
+          { beds: chunk },
+          { headers },
+        );
+      }
     } catch (err: any) {
       this.logger.error(
         'sendBedData POST failed',
@@ -159,7 +162,7 @@ export class SendBedService implements OnApplicationBootstrap {
     this.logger.log('Cron: sending bed data...');
     try {
       const result = await this.sendBedData();
-      this.logger.log(`Cron: done — sent ${result.count} records`);
+      this.logger.log(`----------------------------------------Cron: done — sent ${result.count} records----------------------------------------`);
     } catch (err) {
       this.logger.error(
         'Cron: failed to send bed data',
