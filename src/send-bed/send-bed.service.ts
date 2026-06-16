@@ -56,19 +56,17 @@ export class SendBedService implements OnApplicationBootstrap {
         if (resBed.filterMode == 'BED_ID_LIST') {
           const bedIds: string[] = resBed.bedIds;
           if (!bedIds || bedIds.length === 0) return [];
-          const placeBed = bedIds.map((id) => `'${id}'`).join(', ');
-          const sql = `SELECT b.bedno,IF(EXISTS (SELECT 1 FROM iptadm a INNER JOIN ipt ON ipt.an = a.an WHERE a.bedno = b.bedno AND ipt.confirm_discharge = 'N'),0,1) AS statusBed FROM bedno b WHERE b.bedno IN (${placeBed}) (
+            const placeBed = bedIds.map((id) => `'${id}'`).join(', ')
+        const sql = `SELECT b.bedno,IF(EXISTS (SELECT 1 FROM iptadm a INNER JOIN ipt ON ipt.an = a.an WHERE a.bedno = b.bedno AND ipt.confirm_discharge = 'N'),0,1) AS statusBed FROM bedno b WHERE b.bedno IN (${placeBed}) AND (
               b.bed_status_type_id = 1
               OR b.bed_status_type_id IS NULL
               OR b.bed_status_type_id = ""
-            )`;
+            )`
           const query: any = await this.db.query(sql);
           return query;
         } else if (resBed.filterMode == 'ALL') {
-          const placeWard = (resBed.excludedWardCodes ?? [])
-            .map((id: string) => `'${id}'`)
-            .join(', ');
-          const sql = `
+         const placeWard = resBed?.includedWardCodes?.map((id) => `'${id}'`).join(', ')
+        const sql = `
           SELECT
             b.bedno,
             IF(
@@ -96,11 +94,11 @@ export class SendBedService implements OnApplicationBootstrap {
               OR b.bed_status_type_id = ""
             )
             ${
-              placeWard.length > 0
+              placeWard!.length > 0
                 ? `AND
               w.ward IN(${placeWard})`
                 : ''
-            }`;
+            }`
 
           const query: any = await this.db.query(sql);
           return { beds: query, config: response.data.results };
