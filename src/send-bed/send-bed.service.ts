@@ -108,7 +108,7 @@ export class SendBedService implements OnApplicationBootstrap {
       }
     } catch (error: any) {
       console.log(error.message);
-      return [];
+      return null;
     }
 
     return [];
@@ -124,6 +124,10 @@ export class SendBedService implements OnApplicationBootstrap {
       return { success: false, count: 0 };
     }
     const rawBeds = await this.getBeds();
+    if (rawBeds === null) {
+      this.logger.warn('getBeds failed — skipping send to psych-bed/report');
+      return { success: false, count: 0 };
+    }
     const bedsArray = Array.isArray(rawBeds) ? rawBeds : (rawBeds?.beds ?? []);
 
     const beds = bedsArray.map((row: { bedno: string; statusBed: number }) => ({
