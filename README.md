@@ -1,0 +1,1 @@
+docker run -d --name pbms-api --env-file .env -p 8789:8789 --restart unless-stopped pbms-api
