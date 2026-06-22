@@ -56,19 +56,77 @@ export class SendBedService implements OnApplicationBootstrap {
         if (resBed.filterMode == 'BED_ID_LIST') {
           const bedIds: string[] = resBed.bedIds;
           if (!bedIds || bedIds.length === 0) return [];
-            const placeBed = bedIds.map((id) => `'${id}'`).join(', ')
-        const sql = `SELECT b.bedno,IF(EXISTS (SELECT 1 FROM iptadm a INNER JOIN ipt ON ipt.an = a.an WHERE a.bedno = b.bedno AND ipt.confirm_discharge = 'N'),0,1) AS statusBed FROM bedno b WHERE b.bedno IN (${placeBed}) AND (
-              b.bed_status_type_id = 1
-              OR b.bed_status_type_id IS NULL
-              OR b.bed_status_type_id = ""
-            )`
+          const placeBed = bedIds.map((id) => `'${id}'`).join(', ');
+          const sql = `SELECT
+          b.bedno,
+          w.name AS wardName,
+          vs.pdx,
+          vs.dx0,
+          vs.dx1,
+          vs.dx2,
+          vs.dx3,
+          vs.dx4,
+          vs.dx5,
+          IF(
+            EXISTS (
+              SELECT
+                1
+              FROM
+                iptadm a
+                INNER JOIN ipt ON ipt.an = a.an
+              WHERE
+                a.bedno = b.bedno
+                AND ipt.confirm_discharge = 'N'
+            ),
+            0,
+            1
+          ) AS statusBed
+        FROM
+          bedno b
+          LEFT JOIN iptadm ia ON b.bedno = ia.bedno
+          AND ia.an = (
+            SELECT
+              i2.an
+            FROM
+              iptadm a2
+              INNER JOIN ipt i2 ON i2.an = a2.an
+            WHERE
+              a2.bedno = b.bedno
+            ORDER BY
+              i2.regdate DESC,
+              i2.regtime DESC
+            LIMIT
+              1
+          )
+          LEFT JOIN ipt i ON ia.an = i.an
+          LEFT JOIN ovst o ON i.vn = o.vn
+          LEFT JOIN vn_stat vs ON o.vn = vs.vn
+          LEFT JOIN roomno r ON r.roomno = b.roomno
+          LEFT JOIN ward w ON r.ward = w.ward
+        WHERE
+          (
+            b.bed_status_type_id = 1
+            OR b.bed_status_type_id IS NULL
+            OR b.bed_status_type_id = ""
+          )
+          AND b.bedno IN (${placeBed})`;
           const query: any = await this.db.query(sql);
           return query;
         } else if (resBed.filterMode == 'ALL') {
-         const placeWard = resBed?.includedWardCodes?.map((id) => `'${id}'`).join(', ')
-        const sql = `
+          const placeWard = resBed?.includedWardCodes
+            ?.map((id) => `'${id}'`)
+            .join(', ');
+          const sql = `
           SELECT
             b.bedno,
+            w.name AS wardName,
+            vs.pdx,
+            vs.dx0,
+            vs.dx1,
+            vs.dx2,
+            vs.dx3,
+            vs.dx4,
+            vs.dx5,
             IF(
               EXISTS (
                 SELECT
@@ -85,6 +143,24 @@ export class SendBedService implements OnApplicationBootstrap {
             ) AS statusBed
           FROM
             bedno b
+            LEFT JOIN iptadm ia ON b.bedno = ia.bedno
+            AND ia.an = (
+              SELECT
+                i2.an
+              FROM
+                iptadm a2
+                INNER JOIN ipt i2 ON i2.an = a2.an
+              WHERE
+                a2.bedno = b.bedno
+              ORDER BY
+                i2.regdate DESC,
+                i2.regtime DESC
+              LIMIT
+                1
+            )
+            LEFT JOIN ipt i ON ia.an = i.an
+            LEFT JOIN ovst o ON i.vn = o.vn
+            LEFT JOIN vn_stat vs ON o.vn = vs.vn
             LEFT JOIN roomno r ON r.roomno = b.roomno
             LEFT JOIN ward w ON r.ward = w.ward
           WHERE
@@ -98,7 +174,7 @@ export class SendBedService implements OnApplicationBootstrap {
                 ? `AND
               w.ward IN(${placeWard})`
                 : ''
-            }`
+            }`;
 
           const query: any = await this.db.query(sql);
           return { beds: query, config: response.data.results };
@@ -142,7 +218,7 @@ export class SendBedService implements OnApplicationBootstrap {
     try {
       await axios.post(
         `${apiUrl}/psych-bed/report`,
-        { beds: beds },
+        { beds: beds, sendType: 'API' },
         { headers },
       );
     } catch (err: any) {
