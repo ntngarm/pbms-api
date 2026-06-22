@@ -175,7 +175,7 @@ export class SendBedService implements OnApplicationBootstrap {
               w.ward IN(${placeWard})`
                 : ''
             }`;
-
+          console.log(sql);
           const query: any = await this.db.query(sql);
           return { beds: query, config: response.data.results };
         }
