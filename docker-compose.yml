@@ -1,6 +1,7 @@
 services:
   pbms-api:
     build: .
+    container_name: pbms-api
     ports:
       - "${PORT}:${PORT}"
     env_file:
