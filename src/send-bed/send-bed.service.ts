@@ -204,9 +204,24 @@ export class SendBedService implements OnApplicationBootstrap {
     }
     const bedsArray = Array.isArray(rawBeds) ? rawBeds : (rawBeds?.beds ?? []);
 
-    const beds = bedsArray.map((row: { bedno: string; statusBed: number }) => ({
+    const beds = bedsArray.map((row: { bedno: string; statusBed: number , wardName: string
+        pdx: string
+        dx0: string
+        dx1: string
+        dx2: string
+        dx3: string
+        dx4: string
+        dx5: string}) => ({
       bedName: row.bedno,
       statusAvailable: row.statusBed,
+        wardName: row.wardName,
+        pdx: row.pdx,
+        dx0: row.dx0,
+        dx1: row.dx1,
+        dx2: row.dx2,
+        dx3: row.dx3,
+        dx4: row.dx4,
+        dx5: row.dx5
     }));
 
     const headers = {
