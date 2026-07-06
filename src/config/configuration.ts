@@ -34,6 +34,11 @@ export default () => {
 
     schedule: parseInt(process.env.SET_SCHEDULE ?? '60', 10),
 
+    occupancy: {
+      // fallback เมื่อเรียก bed-config API (resBed.bedCount) ไม่สำเร็จ
+      totalBeds: parseInt(process.env.OCCUPANCY_TOTAL_BEDS ?? '120', 10),
+    },
+
     jwt: {
       secret: process.env.JWT_SECRET ?? 'secret',
       expiresIn: process.env.JWT_EXPIRES_IN ?? '7d',

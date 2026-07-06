@@ -15,6 +15,16 @@ export interface BedRow {
   updated_at: Date;
 }
 
+export interface BedOccupancyRow {
+  month: string; // YYYY-MM
+  startDate: string; // YYYY-MM-DD
+  endDate: string; // YYYY-MM-DD
+  totalPatientDays: number;
+  totalBeds: number;
+  daysInPeriod: number;
+  bedOccupancyRate: number;
+}
+
 @Injectable()
 export class SendBedService implements OnApplicationBootstrap {
   private readonly logger = new Logger(SendBedService.name);
@@ -53,6 +63,7 @@ export class SendBedService implements OnApplicationBootstrap {
       });
       if (response.data.statusCode == 200) {
         const resBed = response.data.results;
+        
         if (resBed.filterMode == 'BED_ID_LIST') {
           const bedIds: string[] = resBed.bedIds;
           if (!bedIds || bedIds.length === 0) return [];
@@ -110,6 +121,7 @@ export class SendBedService implements OnApplicationBootstrap {
             OR b.bed_status_type_id = ""
           )
           AND b.bedno IN (${placeBed})`;
+          // console.log(sql)
           const query: any = await this.db.query(sql);
           return query;
         } else if (resBed.filterMode == 'ALL') {
@@ -175,6 +187,7 @@ export class SendBedService implements OnApplicationBootstrap {
               w.ward IN(${placeWard})`
                 : ''
             }`;
+          // console.log(sql)
           const query: any = await this.db.query(sql);
           return { beds: query, config: response.data.results };
         }
@@ -185,6 +198,180 @@ export class SendBedService implements OnApplicationBootstrap {
     }
 
     return [];
+  }
+
+  // จำนวนเตียงจริง — ดึงจาก resBed.bedCount (bed-config API) โดยตรง, fallback เป็นค่า config ถ้าเรียก API ไม่สำเร็จ
+  private async resolveTotalBeds(totalBeds?: number): Promise<number> {
+    if (totalBeds !== undefined) return totalBeds;
+
+    const apiUrl = BED_API_URL;
+    const clientId = this.config.get<string>('client.id');
+    const secretKey = this.config.get<string>('client.secretKey');
+
+    try {
+      const response = await axios.get(`${apiUrl}/psych-bed/bed-config`, {
+        headers: {
+          'x-client-id': clientId,
+          'x-secret-key': secretKey,
+        },
+      });
+      const bedCount = response.data?.results?.bedCount;
+      if (response.data.statusCode == 200 && typeof bedCount === 'number') {
+        return bedCount;
+      }
+    } catch (error: any) {
+      this.logger.warn(
+        `Failed to fetch bedCount from bed-config, falling back to config default: ${error.message}`,
+      );
+    }
+
+    return this.config.get<number>('occupancy.totalBeds', 0);
+  }
+
+  // รายชื่อเตียงที่ใช้คำนวณอัตราครองเตียง — ดึงจาก bed-config API เดียวกับ getBeds()
+  private async getConfiguredBedCodes(): Promise<string[]> {
+    const rawBeds = await this.getBeds();
+    if (rawBeds === null) return [];
+    const bedsArray = Array.isArray(rawBeds) ? rawBeds : (rawBeds?.beds ?? []);
+    return bedsArray
+      .map((row: { bedno: string }) => row.bedno)
+      .filter(Boolean);
+  }
+
+  // อัตราครองเตียงของช่วงวันที่ที่กำหนด (1 ช่วง = 1 แถวผลลัพธ์)
+  async getBedOccupancyRateForPeriod(
+    startDate: string,
+    endDate: string,
+    bedCodes: string[],
+    totalBedsInput?: number,
+  ): Promise<Omit<BedOccupancyRow, 'month'>> {
+    const totalBeds = await this.resolveTotalBeds(totalBedsInput);
+
+    if (bedCodes.length === 0) {
+      const daysInPeriod =
+        Math.round(
+          (new Date(endDate).getTime() - new Date(startDate).getTime()) /
+            86400000,
+        ) + 1;
+      return {
+        startDate,
+        endDate,
+        totalPatientDays: 0,
+        totalBeds,
+        daysInPeriod,
+        bedOccupancyRate: 0,
+      };
+    }
+
+    const bedPlaceholders = bedCodes.map(() => '?').join(', ');
+    const sql = `
+      SELECT
+        SUM(sub.los_days) AS total_patient_days,
+        ? AS total_beds,
+        (DATEDIFF(?, ?) + 1) AS days_in_period,
+        ROUND(
+          (SUM(sub.los_days) * 100)
+          / (? * (DATEDIFF(?, ?) + 1)),
+          2
+        ) AS bed_occupancy_rate
+      FROM (
+        SELECT
+          i.an,
+          i.ward,
+          i.regdate,
+          i.dchdate,
+          DATEDIFF(
+            LEAST(COALESCE(i.dchdate, ?), ?),
+            GREATEST(i.regdate, ?)
+          ) AS los_days
+        FROM ipt i
+        LEFT JOIN iptadm ia ON i.an = ia.an
+        WHERE
+          i.regdate <= ?
+          AND (i.dchdate >= ? OR i.dchdate IS NULL)
+          AND ia.bedno IN (${bedPlaceholders})
+      ) AS sub
+    `;
+    
+    const params = [
+      totalBeds,
+      endDate,
+      startDate, // days_in_period
+      totalBeds,
+      endDate,
+      startDate, // denominator
+      endDate,
+      endDate, // LEAST(COALESCE(dchdate, endDate), endDate)
+      startDate, // GREATEST(regdate, startDate)
+      endDate, // regdate <= endDate
+      startDate, // dchdate >= startDate
+      ...bedCodes,
+    ];
+
+    const rows = await this.db.query<{
+      total_patient_days: number | null;
+      total_beds: number;
+      days_in_period: number;
+      bed_occupancy_rate: number | null;
+    }>(sql, params);
+
+    const row = rows[0];
+    return {
+      startDate,
+      endDate,
+      totalPatientDays: Number(row?.total_patient_days ?? 0),
+      totalBeds,
+      daysInPeriod: Number(row?.days_in_period ?? 0),
+      bedOccupancyRate: Number(row?.bed_occupancy_rate ?? 0),
+    };
+  }
+
+  // อัตราครองเตียงรายเดือน ย้อนหลัง N เดือน (เดือนปัจจุบันนับเป็นเดือนล่าสุด)
+  async getMonthlyBedOccupancyRate(
+    months = 12,
+    bedCodesInput?: string[],
+    totalBedsInput?: number,
+  ): Promise<BedOccupancyRow[]> {
+    // resolve ครั้งเดียว แล้วส่งต่อทุกเดือน กัน call bed-config API ซ้ำ 12 ครั้ง
+    const [bedCodes, totalBeds] = await Promise.all([
+      bedCodesInput ?? this.getConfiguredBedCodes(),
+      this.resolveTotalBeds(totalBedsInput),
+    ]);
+    const now = new Date();
+
+    const periods = Array.from({ length: months }, (_, idx) => {
+      const offset = months - 1 - idx;
+      const first = new Date(now.getFullYear(), now.getMonth() - offset, 1);
+      const last = new Date(now.getFullYear(), now.getMonth() - offset + 1, 0);
+      return {
+        month: `${first.getFullYear()}-${String(first.getMonth() + 1).padStart(2, '0')}`,
+        startDate: this.formatDate(first),
+        endDate: this.formatDate(last),
+      };
+    });
+
+    const results = await Promise.all(
+      periods.map(({ startDate, endDate }) =>
+        this.getBedOccupancyRateForPeriod(
+          startDate,
+          endDate,
+          bedCodes,
+          totalBeds,
+        ),
+      ),
+    );
+
+    return periods.map((period, idx) => ({
+      month: period.month,
+      ...results[idx],
+    }));
+  }
+
+  private formatDate(date: Date): string {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
   }
 
   async sendBedData(): Promise<{ success: boolean; count: number }> {
@@ -202,6 +389,30 @@ export class SendBedService implements OnApplicationBootstrap {
       return { success: false, count: 0 };
     }
     const bedsArray = Array.isArray(rawBeds) ? rawBeds : (rawBeds?.beds ?? []);
+
+    const headers = {
+      'x-client-id': clientId,
+      'x-secret-key': secretKey,
+      'Content-Type': 'application/json',
+    };
+
+    const bedCodes = bedsArray.map((row: { bedno: string }) => row.bedno);
+    const occupancy = await this.getMonthlyBedOccupancyRate(12, bedCodes);
+    try {
+      await axios.post(
+        `${apiUrl}/bed-occupancy`,
+        { data: occupancy },
+        { headers },
+      );
+      this.logger.log(
+        `Sent ${occupancy.length} bed occupancy records to ${apiUrl}/bed-occupancy`,
+      );
+    } catch (err: any) {
+      this.logger.error(
+        'sendBedOccupancyRate POST failed',
+        err.response?.data ?? err.message,
+      );
+    }
 
     const beds = bedsArray.map(
       (row: {
@@ -228,12 +439,6 @@ export class SendBedService implements OnApplicationBootstrap {
         dx5: row.dx5,
       }),
     );
-
-    const headers = {
-      'x-client-id': clientId,
-      'x-secret-key': secretKey,
-      'Content-Type': 'application/json',
-    };
 
     try {
       await axios.post(
