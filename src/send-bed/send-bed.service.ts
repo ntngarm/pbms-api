@@ -280,10 +280,14 @@ export class SendBedService implements OnApplicationBootstrap {
           i.ward,
           i.regdate,
           i.dchdate,
-          DATEDIFF(
-            LEAST(COALESCE(i.dchdate, ?), ?),
-            GREATEST(i.regdate, ?)
-          ) AS los_days
+          CASE
+            -- จำหน่ายจริงในช่วงนี้ → เตียงว่างให้คนไข้คนใหม่ได้ วันจำหน่ายจึงไม่นับเป็นวันเต็ม
+            WHEN i.dchdate IS NOT NULL AND i.dchdate <= ? THEN
+              DATEDIFF(i.dchdate, GREATEST(i.regdate, ?))
+            -- ยังไม่จำหน่ายภายในช่วงนี้ → คนไข้ยังครองเตียงถึงเที่ยงคืนของวันสุดท้าย จึงนับ endDate เป็นวันเต็ม (+1)
+            ELSE
+              DATEDIFF(?, GREATEST(i.regdate, ?)) + 1
+          END AS los_days
         FROM ipt i
         LEFT JOIN iptadm ia ON i.an = ia.an
         WHERE
@@ -292,7 +296,7 @@ export class SendBedService implements OnApplicationBootstrap {
           AND ia.bedno IN (${bedPlaceholders})
       ) AS sub
     `;
-    
+
     const params = [
       totalBeds,
       endDate,
@@ -300,9 +304,10 @@ export class SendBedService implements OnApplicationBootstrap {
       totalBeds,
       endDate,
       startDate, // denominator
-      endDate,
-      endDate, // LEAST(COALESCE(dchdate, endDate), endDate)
-      startDate, // GREATEST(regdate, startDate)
+      endDate, // dchdate <= endDate (จำหน่ายจริงในช่วงนี้ไหม)
+      startDate, // GREATEST(regdate, startDate) — กรณีจำหน่ายจริง
+      endDate, // DATEDIFF(endDate, ...) — กรณียังไม่จำหน่าย
+      startDate, // GREATEST(regdate, startDate) — กรณียังไม่จำหน่าย
       endDate, // regdate <= endDate
       startDate, // dchdate >= startDate
       ...bedCodes,
