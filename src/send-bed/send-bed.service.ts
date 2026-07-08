@@ -115,12 +115,7 @@ export class SendBedService implements OnApplicationBootstrap {
           LEFT JOIN roomno r ON r.roomno = b.roomno
           LEFT JOIN ward w ON r.ward = w.ward
         WHERE
-          (
-            b.bed_status_type_id = 1
-            OR b.bed_status_type_id IS NULL
-            OR b.bed_status_type_id = ""
-          )
-          AND b.bedno IN (${placeBed})`;
+          b.bedno IN (${placeBed})`;
           // console.log(sql)
           const query: any = await this.db.query(sql);
           return query;
@@ -176,17 +171,7 @@ export class SendBedService implements OnApplicationBootstrap {
             LEFT JOIN roomno r ON r.roomno = b.roomno
             LEFT JOIN ward w ON r.ward = w.ward
           WHERE
-            (
-              b.bed_status_type_id = 1
-              OR b.bed_status_type_id IS NULL
-              OR b.bed_status_type_id = ""
-            )
-            ${
-              placeWard!.length > 0
-                ? `AND
-              w.ward IN(${placeWard})`
-                : ''
-            }`;
+            w.ward IN(${placeWard})`;
           // console.log(sql)
           const query: any = await this.db.query(sql);
           return { beds: query, config: response.data.results };
@@ -291,9 +276,7 @@ export class SendBedService implements OnApplicationBootstrap {
         FROM ipt i
         LEFT JOIN iptadm ia ON i.an = ia.an
         WHERE
-          i.regdate <= ?
-          AND (i.dchdate >= ? OR i.dchdate IS NULL)
-          AND ia.bedno IN (${bedPlaceholders})
+          ia.bedno IN (${bedPlaceholders})
       ) AS sub
     `;
 
