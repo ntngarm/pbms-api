@@ -63,58 +63,66 @@ export class SendBedService implements OnApplicationBootstrap {
       });
       if (response.data.statusCode == 200) {
         const resBed = response.data.results;
-        
+
         if (resBed.filterMode == 'BED_ID_LIST') {
           const bedIds: string[] = resBed.bedIds;
           if (!bedIds || bedIds.length === 0) return [];
           const placeBed = bedIds.map((id) => `'${id}'`).join(', ');
           const sql = `SELECT
-          b.bedno,
-          w.name AS wardName,
-          vs.pdx,
-          vs.dx0,
-          vs.dx1,
-          vs.dx2,
-          vs.dx3,
-          vs.dx4,
-          vs.dx5,
-          IF(
-            EXISTS (
-              SELECT
-                1
-              FROM
-                iptadm a
-                INNER JOIN ipt ON ipt.an = a.an
-              WHERE
-                a.bedno = b.bedno
-                AND ipt.confirm_discharge = 'N'
-            ),
-            0,
-            1
-          ) AS statusBed
-        FROM
-          bedno b
-          LEFT JOIN iptadm ia ON b.bedno = ia.bedno
-          AND ia.an = (
-            SELECT
-              i2.an
-            FROM
-              iptadm a2
-              INNER JOIN ipt i2 ON i2.an = a2.an
-            WHERE
-              a2.bedno = b.bedno
-            ORDER BY
-              i2.regdate DESC,
-              i2.regtime DESC
-            LIMIT
-              1
-          )
-          LEFT JOIN ipt i ON ia.an = i.an
-          LEFT JOIN ovst o ON i.vn = o.vn
-          LEFT JOIN vn_stat vs ON o.vn = vs.vn
-          LEFT JOIN roomno r ON r.roomno = b.roomno
-          LEFT JOIN ward w ON r.ward = w.ward
-        WHERE
+	b.bedno,
+	w.name AS wardName,
+  w.ward,
+	i.an,
+	a.an,
+	a.age_y,
+	a.age_m,
+	a.age_d,
+	a.sex,
+	vs.pdx,
+	vs.dx0,
+	vs.dx1,
+	vs.dx2,
+	vs.dx3,
+	vs.dx4,
+	vs.dx5,
+	IF(
+		EXISTS (
+			SELECT
+				1
+			FROM
+				iptadm ax
+				INNER JOIN ipt ip ON ip.an = ax.an
+			WHERE
+				ax.bedno = b.bedno
+				AND ip.confirm_discharge = 'N'
+		),
+		0,
+		1
+	) AS statusBed
+FROM
+	bedno b
+	LEFT JOIN iptadm ia ON b.bedno = ia.bedno
+	AND ia.an = (
+		SELECT
+			i2.an
+		FROM
+			iptadm a2
+			INNER JOIN ipt i2 ON i2.an = a2.an
+		WHERE
+			a2.bedno = b.bedno
+		ORDER BY
+			i2.regdate DESC,
+			i2.regtime DESC
+		LIMIT
+			1
+	)
+	LEFT JOIN ipt i ON ia.an = i.an
+	LEFT JOIN ovst o ON i.vn = o.vn
+	LEFT JOIN an_stat a ON i.an = a.an
+	LEFT JOIN vn_stat vs ON o.vn = vs.vn
+	LEFT JOIN roomno r ON r.roomno = b.roomno
+	LEFT JOIN ward w ON r.ward = w.ward
+WHERE
           b.bedno IN (${placeBed})`;
           // console.log(sql)
           const query: any = await this.db.query(sql);
@@ -127,6 +135,13 @@ export class SendBedService implements OnApplicationBootstrap {
           SELECT
             b.bedno,
             w.name AS wardName,
+            w.ward,
+            i.an,
+            a.an,
+            a.age_y,
+            a.age_m,
+            a.age_d,
+            a.sex,
             vs.pdx,
             vs.dx0,
             vs.dx1,
@@ -139,11 +154,11 @@ export class SendBedService implements OnApplicationBootstrap {
                 SELECT
                   1
                 FROM
-                  iptadm a
-                  INNER JOIN ipt ON ipt.an = a.an
+                  iptadm ax
+                  INNER JOIN ipt ip ON ip.an = ax.an
                 WHERE
-                  a.bedno = b.bedno
-                  AND ipt.confirm_discharge = 'N'
+                  ax.bedno = b.bedno
+                  AND ip.confirm_discharge = 'N'
               ),
               0,
               1
@@ -167,6 +182,7 @@ export class SendBedService implements OnApplicationBootstrap {
             )
             LEFT JOIN ipt i ON ia.an = i.an
             LEFT JOIN ovst o ON i.vn = o.vn
+            LEFT JOIN an_stat a ON i.an = a.an
             LEFT JOIN vn_stat vs ON o.vn = vs.vn
             LEFT JOIN roomno r ON r.roomno = b.roomno
             LEFT JOIN ward w ON r.ward = w.ward
@@ -218,9 +234,7 @@ export class SendBedService implements OnApplicationBootstrap {
     const rawBeds = await this.getBeds();
     if (rawBeds === null) return [];
     const bedsArray = Array.isArray(rawBeds) ? rawBeds : (rawBeds?.beds ?? []);
-    return bedsArray
-      .map((row: { bedno: string }) => row.bedno)
-      .filter(Boolean);
+    return bedsArray.map((row: { bedno: string }) => row.bedno).filter(Boolean);
   }
 
   // อัตราครองเตียงของช่วงวันที่ที่กำหนด (1 ช่วง = 1 แถวผลลัพธ์)
@@ -414,6 +428,10 @@ export class SendBedService implements OnApplicationBootstrap {
         dx3: string;
         dx4: string;
         dx5: string;
+        sex: string | null;
+        age_y: number | null;
+        age_m: number | null;
+        age_d: number | null;
       }) => ({
         bedName: row.bedno,
         statusAvailable: row.statusBed,
@@ -425,6 +443,10 @@ export class SendBedService implements OnApplicationBootstrap {
         dx3: row.dx3,
         dx4: row.dx4,
         dx5: row.dx5,
+        sex: row.sex ?? '',
+        age_y: row.age_y ?? 0,
+        age_m: row.age_m ?? 0,
+        age_d: row.age_d ?? 0,
       }),
     );
 
