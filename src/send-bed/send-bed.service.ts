@@ -71,9 +71,7 @@ export class SendBedService implements OnApplicationBootstrap {
           const sql = `SELECT
 	b.bedno,
 	w.name AS wardName,
-  w.ward,
-	i.an,
-	a.an,
+  w.ward,	
 	a.age_y,
 	a.age_m,
 	a.age_d,
@@ -124,7 +122,7 @@ FROM
 	LEFT JOIN ward w ON r.ward = w.ward
 WHERE
           b.bedno IN (${placeBed})`;
-          // console.log(sql)
+          console.log(sql);
           const query: any = await this.db.query(sql);
           return query;
         } else if (resBed.filterMode == 'ALL') {
@@ -135,9 +133,7 @@ WHERE
           SELECT
             b.bedno,
             w.name AS wardName,
-            w.ward,
-            i.an,
-            a.an,
+            w.ward,            
             a.age_y,
             a.age_m,
             a.age_d,
@@ -188,7 +184,7 @@ WHERE
             LEFT JOIN ward w ON r.ward = w.ward
           WHERE
             w.ward IN(${placeWard})`;
-          // console.log(sql)
+          console.log(sql);
           const query: any = await this.db.query(sql);
           return { beds: query, config: response.data.results };
         }
@@ -290,7 +286,9 @@ WHERE
         FROM ipt i
         LEFT JOIN iptadm ia ON i.an = ia.an
         WHERE
-          ia.bedno IN (${bedPlaceholders})
+          i.regdate <= ?
+          AND (i.dchdate >= ? OR i.dchdate IS NULL)
+          AND ia.bedno IN (${bedPlaceholders})
       ) AS sub
     `;
 
